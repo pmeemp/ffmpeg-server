@@ -1,8 +1,8 @@
 const { buildTripleTemplate } = require("./triple_product");
 
-function buildTemplateByMode({ mode, body, fallbackText, isFaceMode }) {
+function buildTemplateByMode({ mode, body, fallbackText, isFaceMode, tripleOverlayPath = null }) {
   if (mode === "triple") {
-    return buildTripleTemplate({ body, fallbackText, isFaceMode });
+    return buildTripleTemplate({ body, fallbackText, isFaceMode, tripleOverlayPath });
   }
   return null;
 }

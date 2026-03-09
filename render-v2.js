@@ -2,11 +2,12 @@
 // v2 renderer: Make sends sentence + params. Server formats text (wrap + font + placement).
 // Routes:
 //   GET  /render2/health
-//   POST /render2  (multipart: video required, facevideo optional)
+//   POST /render2  (multipart: video required, facevideo optional, triple_overlay optional)
 //
 // Multipart field names expected:
-//   Files: video (required), facevideo (optional)
+//   Files: video (required), facevideo (optional), triple_overlay (optional PNG/WebP for mode=triple overlay mode)
 //   Fields: text, motion, crop_mode, shake_level, start_offset, face_start, face_duration, output_name, mode (optional)
+//   Triple overlay mode (optional): triple_overlay_enabled=true
 //   Future overrides (optional): text_style, text_placement
 //
 // Behavior:
@@ -45,6 +46,7 @@ const app = express();
 const UPLOADS_DIR = path.join(process.cwd(), "uploads_v2");
 const OUTPUTS_DIR = path.join(process.cwd(), "outputs_v2");
 const BADGE_CACHE_DIR = path.join(os.tmpdir(), "render2_badges");
+const TRIPLE_OVERLAY_DEFAULT_PATH = path.join(process.cwd(), "templates_v2", "triple.PNG");
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 fs.mkdirSync(OUTPUTS_DIR, { recursive: true });
 fs.mkdirSync(BADGE_CACHE_DIR, { recursive: true });
@@ -54,6 +56,18 @@ const upload = multer({
   dest: UPLOADS_DIR,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
   fileFilter: (req, file, cb) => {
+    if (file.fieldname === "triple_overlay") {
+      const okMime = new Set([
+        "image/png",
+        "image/webp",
+        "application/octet-stream", // Some automations send generic mime
+      ]);
+      const ext = path.extname(file.originalname || "").toLowerCase();
+      const okExt = new Set([".png", ".webp"]);
+      if (okMime.has(file.mimetype) || okExt.has(ext)) return cb(null, true);
+      return cb(new Error(`Unsupported overlay type: mime=${file.mimetype} ext=${ext}`));
+    }
+
     const okMime = new Set([
       "video/mp4",
       "video/quicktime", // .mov
@@ -70,6 +84,7 @@ const upload = multer({
 const cpUpload = upload.fields([
   { name: "video", maxCount: 1 },
   { name: "facevideo", maxCount: 1 },
+  { name: "triple_overlay", maxCount: 1 },
 ]);
 
 // ---- Helpers ----
@@ -110,6 +125,11 @@ function parseMode(value) {
     .toLowerCase();
   if (!raw) return null;
   return raw.replace(/[^a-z0-9_-]/g, "");
+}
+
+function parseBool(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 function safeUnlink(p) {
@@ -288,6 +308,8 @@ app.get("/render2/health", (req, res) => res.json({ ok: true, service: "render-v
 app.post("/render2", cpUpload, async (req, res) => {
   let basePath = null;
   let facePath = null;
+  let tripleOverlayPath = null;
+  let tripleOverlayIsTemp = false;
   let outputPath = null;
 
   // text temp file(s) created by text-engine
@@ -296,6 +318,7 @@ app.post("/render2", cpUpload, async (req, res) => {
   try {
     const videoFile = req.files?.video?.[0];
     const faceFile = req.files?.facevideo?.[0] || null;
+    const tripleOverlayFile = req.files?.triple_overlay?.[0] || null;
 
     if (!videoFile) {
       return res.status(400).json({ error: "Missing required file field: video" });
@@ -303,6 +326,8 @@ app.post("/render2", cpUpload, async (req, res) => {
 
     basePath = videoFile.path;
     facePath = faceFile ? faceFile.path : null;
+    tripleOverlayPath = tripleOverlayFile ? tripleOverlayFile.path : null;
+    tripleOverlayIsTemp = !!tripleOverlayFile;
 
     // Normalize text (fixes “don’t” -> "don't" etc.)
     const text = normalizeText(req.body.text);
@@ -320,6 +345,21 @@ app.post("/render2", cpUpload, async (req, res) => {
 
     const outputName = sanitizeOutputName(req.body.output_name);
     const mode = parseMode(req.body.mode);
+    const tripleOverlayEnabled = parseBool(req.body.triple_overlay_enabled);
+    if (mode === "triple" && tripleOverlayEnabled) {
+      if (!tripleOverlayPath && fs.existsSync(TRIPLE_OVERLAY_DEFAULT_PATH)) {
+        tripleOverlayPath = TRIPLE_OVERLAY_DEFAULT_PATH;
+      }
+      if (!tripleOverlayPath) {
+        return res.status(400).json({
+          error:
+            "triple_overlay_enabled=true but no overlay found. Upload triple_overlay or place templates_v2/triple.PNG",
+        });
+      }
+    } else {
+      // Keep classic triple text behavior unless explicitly enabled.
+      tripleOverlayPath = null;
+    }
     outputPath = path.join(
       OUTPUTS_DIR,
       `${Date.now()}_${crypto.randomBytes(4).toString("hex")}_${outputName}`
@@ -344,6 +384,7 @@ app.post("/render2", cpUpload, async (req, res) => {
       body: req.body,
       fallbackText: text,
       isFaceMode,
+      tripleOverlayPath,
     });
     const isTripleTemplate = modeTemplate?.kind === "triple";
     const tripleMaxDurationSec = 15.2;
@@ -395,13 +436,37 @@ app.post("/render2", cpUpload, async (req, res) => {
         }
       }
 
-      if (modeTemplate?.kind === "triple" && Array.isArray(modeTemplate.badges) && modeTemplate.badges.length) {
+      const hasTripleOverlay = modeTemplate?.kind === "triple" && !!modeTemplate.tripleOverlayPath;
+      if (
+        modeTemplate?.kind === "triple" &&
+        (
+          hasTripleOverlay ||
+          (Array.isArray(modeTemplate.badges) && modeTemplate.badges.length)
+        )
+      ) {
         const badges = modeTemplate.badges;
         const badgePngs = badges.map(ensureRoundedBadgePng);
+        const currentLabel = { value: "[base]" };
         const fcParts = [`[0:v]${motionFilter}[base]`];
-        const rounded = buildTripleBadgeOverlayFilter("[base]", badges);
-        if (rounded.filter) fcParts.push(rounded.filter);
-        fcParts.push(`${rounded.outLabel}${modeTemplate.filter}[vout]`);
+
+        if (hasTripleOverlay) {
+          const overlayInputIndex = 1 + badgePngs.length;
+          fcParts.push(`[${overlayInputIndex}:v]format=rgba,scale='min(iw,860)':-1[triple_overlay]`);
+          fcParts.push(`${currentLabel.value}[triple_overlay]overlay=(W-w)/2:H*${modeTemplate.tripleOverlayYFrac ?? 0.06}[with_overlay]`);
+          currentLabel.value = "[with_overlay]";
+        }
+
+        const rounded = buildTripleBadgeOverlayFilter(currentLabel.value, badges);
+        if (rounded.filter) {
+          fcParts.push(rounded.filter);
+          currentLabel.value = rounded.outLabel;
+        }
+
+        if (modeTemplate.filter) {
+          fcParts.push(`${currentLabel.value}${modeTemplate.filter}[vout]`);
+        } else {
+          fcParts.push(`${currentLabel.value}null[vout]`);
+        }
 
         args = [
           "-y",
@@ -415,6 +480,7 @@ app.post("/render2", cpUpload, async (req, res) => {
             "-i",
             p,
           ]),
+          ...(hasTripleOverlay ? ["-loop", "1", "-i", modeTemplate.tripleOverlayPath] : []),
           "-filter_complex",
           fcParts.join(";"),
           "-map",
@@ -558,6 +624,7 @@ app.post("/render2", cpUpload, async (req, res) => {
       // Cleanup uploaded temp files
       safeUnlink(basePath);
       safeUnlink(facePath);
+      if (tripleOverlayIsTemp) safeUnlink(tripleOverlayPath);
 
       // Cleanup temp text file created by text-engine
       textfilePaths.forEach(safeUnlink);
@@ -573,6 +640,7 @@ app.post("/render2", cpUpload, async (req, res) => {
     // Cleanup temp files on error
     safeUnlink(basePath);
     safeUnlink(facePath);
+    if (tripleOverlayIsTemp) safeUnlink(tripleOverlayPath);
     textfilePaths.forEach(safeUnlink);
     safeUnlink(outputPath);
 
