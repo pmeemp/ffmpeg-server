@@ -5,43 +5,397 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Render Control</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
-    .card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
-    h1 { margin: 0 0 8px; font-size: 22px; }
-    p { margin: 0 0 16px; color: #374151; }
-    .btn { display: block; width: 100%; padding: 16px; margin: 12px 0; font-size: 18px; border-radius: 14px; border: 0; cursor: pointer; }
-    .btn-primary { background: #111827; color: white; }
-    .btn-secondary { background: #2563eb; color: white; }
-    .btn-danger { background: #dc2626; color: white; }
-    .separator { border-top: 1px solid #e5e7eb; margin: 20px 0; }
-    .small { font-size: 13px; color: #6b7280; margin-top: 10px; }
-    .status { margin-top: 14px; font-size: 14px; color: #111827; min-height: 20px; }
+    :root {
+      --bg: #edf2f7;
+      --panel: #ffffff;
+      --panel-soft: rgba(255, 255, 255, 0.82);
+      --border: #d6deea;
+      --text: #0f172a;
+      --muted: #64748b;
+      --shadow: 0 20px 48px rgba(15, 23, 42, 0.12);
+      --success-bg: #ecfdf3;
+      --success-text: #047857;
+      --error-bg: #fef2f2;
+      --error-text: #b91c1c;
+      --primary: #0f172a;
+      --secondary: #2563eb;
+      --danger: #dc2626;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      padding: 32px 24px;
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(15, 23, 42, 0.08), transparent 26%),
+        linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+    .layout {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 22px;
+      align-items: start;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 26px;
+      background: var(--panel-soft);
+      backdrop-filter: blur(14px);
+      width: 100%;
+      min-width: 0;
+      box-shadow: var(--shadow);
+    }
+    h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.03em; }
+    p { margin: 0 0 16px; color: #334155; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 17px 18px;
+      margin: 12px 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      border-radius: 16px;
+      border: 0;
+      cursor: pointer;
+      transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+    }
+    .btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 24px rgba(15, 23, 42, 0.14);
+    }
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+    .btn.is-cooling-down {
+      opacity: 0.72;
+      filter: saturate(0.75);
+    }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-secondary { background: var(--secondary); color: white; }
+    .btn-danger { background: var(--danger); color: white; }
+    .separator { border-top: 1px solid var(--border); margin: 20px 0; }
+    .small { font-size: 13px; color: var(--muted); margin-top: 14px; }
+    .status {
+      margin-top: 18px;
+      padding: 12px 14px;
+      font-size: 14px;
+      color: var(--text);
+      min-height: 48px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(214, 222, 234, 0.9);
+    }
+    .log-panel {
+      width: 100%;
+      position: sticky;
+      top: 24px;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      min-width: 0;
+      transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease;
+    }
+    .log-panel.collapsed {
+      width: 100%;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .log-title-wrap { min-width: 0; }
+    .log-title { margin: 0; font-size: 17px; letter-spacing: -0.02em; }
+    .log-subtitle { margin: 4px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+    .toggle-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 9px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: background-color 140ms ease, border-color 140ms ease;
+    }
+    .toggle-btn:hover {
+      background: #f8fafc;
+      border-color: #c2cedd;
+    }
+    .log-content {
+      padding: 14px;
+      max-height: min(72vh, 760px);
+      overflow: auto;
+      scrollbar-gutter: stable;
+    }
+    .log-panel.collapsed .log-title-wrap,
+    .log-panel.collapsed .log-content { display: none; }
+    .log-empty {
+      margin: 0;
+      padding: 12px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      background: #fafafa;
+    }
+    .log-list { display: flex; flex-direction: column; gap: 10px; }
+    .log-item {
+      border-radius: 14px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      background: #fff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    }
+    .log-item.success { background: var(--success-bg); color: var(--success-text); border-color: #bbf7d0; }
+    .log-item.error { background: var(--error-bg); color: var(--error-text); border-color: #fecaca; }
+    .log-message { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; }
+    .log-meta { margin-top: 6px; font-size: 12px; color: var(--muted); }
+    .log-item.success .log-meta { color: #065f46; }
+    .log-item.error .log-meta { color: #991b1b; }
+    @media (max-width: 980px) {
+      body { padding: 22px 16px; }
+      .layout { grid-template-columns: 1fr; }
+      .card, .log-panel { max-width: none; width: 100%; }
+      .log-panel { position: static; }
+    }
+    @media (max-width: 640px) {
+      .card { padding: 20px; border-radius: 18px; }
+      .log-panel { border-radius: 18px; }
+      .log-header { padding: 14px; }
+      h1 { font-size: 24px; }
+      .btn { font-size: 16px; padding: 15px 16px; }
+      .status { min-height: 56px; }
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Render Control</h1>
-    <p>Click a button to start edits. Status will appear in Slack.</p>
+  <div class="layout">
+    <div class="card">
+      <h1>Render Control</h1>
+      <p>Click a button to start edits. Status will appear in Slack.</p>
 
-    <button class="btn btn-primary" data-account="datsfetch">Run Datsfetch</button>
-    <button class="btn btn-secondary" data-account="tophealth">Run Tophealth</button>
+      <button class="btn btn-primary" data-account="datsfetch">Run Datsfetch</button>
+      <button class="btn btn-secondary" data-account="tophealth">Run Tophealth</button>
 
-    <div class="separator"></div>
+      <div class="separator"></div>
 
-    <button class="btn btn-danger" data-account="triple">RUN TRIPLE DISCOUNT</button>
+      <button class="btn btn-danger" data-account="triple">RUN TRIPLE DISCOUNT</button>
 
-    <div class="status" id="status"></div>
-    <div class="small">If nothing happens in Slack within 10 minutes, notify me.</div>
+      <div class="status" id="status"></div>
+      <div class="small">If nothing happens in Slack within 10 minutes, notify me.</div>
+    </div>
+
+    <aside class="log-panel" id="logPanel">
+      <div class="log-header">
+        <div class="log-title-wrap">
+          <h2 class="log-title">Render Log</h2>
+          <p class="log-subtitle">Successful renders, processing errors, and server issues</p>
+        </div>
+        <button class="toggle-btn" id="toggleLog" type="button">Hide Log</button>
+      </div>
+      <div class="log-content">
+        <div class="log-list" id="logList"></div>
+        <p class="log-empty" id="logEmpty">No render events yet.</p>
+      </div>
+    </aside>
   </div>
 
   <script>
     const statusEl = document.getElementById("status");
     const buttons = Array.from(document.querySelectorAll("[data-account]"));
+    const logPanel = document.getElementById("logPanel");
+    const logListEl = document.getElementById("logList");
+    const logEmptyEl = document.getElementById("logEmpty");
+    const toggleLogButton = document.getElementById("toggleLog");
+    const BUTTON_COOLDOWN_MS = 30000;
+    const MAX_CLIENT_LOGS = 100;
+    const clientOnlyLogs = [];
+    let serverLogs = [];
+    let knownServerLogIds = new Set();
+    let healthWarningActive = false;
+    const buttonState = new Map();
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function formatTime(isoString) {
+      const date = new Date(isoString);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toLocaleString();
+    }
+
+    function buildMessage(entry) {
+      if (entry.status === "success") {
+        const filePart = entry.fileName || "File";
+        const modePart = entry.mode ? ` + ${entry.mode}` : "";
+        return `✅ ${filePart}${modePart} created`;
+      }
+
+      if (entry.status === "error") {
+        if (entry.fileName) {
+          const modeSuffix = entry.mode ? ` - ${entry.mode}` : "";
+          return `❌ Error processing ${entry.fileName}${modeSuffix}`;
+        }
+
+        return entry.message || "❌ Error processing render";
+      }
+
+      return entry.message || "Server event";
+    }
+
+    function addClientLog(status, message, extra = {}) {
+      const entry = {
+        id: `client_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        status,
+        message,
+        createdAt: new Date().toISOString(),
+        source: "client",
+        ...extra,
+      };
+
+      clientOnlyLogs.unshift(entry);
+      if (clientOnlyLogs.length > MAX_CLIENT_LOGS) {
+        clientOnlyLogs.length = MAX_CLIENT_LOGS;
+      }
+      renderLogs();
+    }
+
+    function setButtonCoolingState(button, active, secondsRemaining = null) {
+      const state = buttonState.get(button) || {
+        defaultLabel: button.textContent,
+        timerId: null,
+      };
+
+      if (!buttonState.has(button)) {
+        buttonState.set(button, state);
+      }
+
+      if (!active) {
+        button.disabled = false;
+        button.classList.remove("is-cooling-down");
+        button.textContent = state.defaultLabel;
+        if (state.timerId) {
+          clearInterval(state.timerId);
+          state.timerId = null;
+        }
+        return;
+      }
+
+      button.disabled = true;
+      button.classList.add("is-cooling-down");
+      button.textContent = secondsRemaining !== null
+        ? `Please wait ${secondsRemaining}s`
+        : "Please wait...";
+    }
+
+    function startButtonCooldown(button) {
+      const state = buttonState.get(button) || {
+        defaultLabel: button.textContent,
+        timerId: null,
+      };
+
+      if (state.timerId) {
+        clearInterval(state.timerId);
+        state.timerId = null;
+      }
+
+      buttonState.set(button, state);
+
+      const startedAt = Date.now();
+
+      function tick() {
+        const elapsed = Date.now() - startedAt;
+        const remainingMs = Math.max(0, BUTTON_COOLDOWN_MS - elapsed);
+        const remainingSeconds = Math.ceil(remainingMs / 1000);
+
+        if (remainingMs <= 0) {
+          setButtonCoolingState(button, false);
+          return;
+        }
+
+        setButtonCoolingState(button, true, remainingSeconds);
+      }
+
+      tick();
+      state.timerId = setInterval(tick, 1000);
+    }
+
+    function renderLogs() {
+      const merged = [...clientOnlyLogs, ...serverLogs]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, MAX_CLIENT_LOGS);
+
+      logListEl.innerHTML = merged.map((entry) => {
+        const message = buildMessage(entry);
+        const meta = formatTime(entry.createdAt);
+        return `
+          <article class="log-item ${escapeHtml(entry.status || "info")}">
+            <p class="log-message">${escapeHtml(message)}</p>
+            <div class="log-meta">${escapeHtml(meta)}</div>
+          </article>
+        `;
+      }).join("");
+
+      const hasLogs = merged.length > 0;
+      logEmptyEl.style.display = hasLogs ? "none" : "block";
+    }
+
+    async function refreshServerLogs() {
+      try {
+        const response = await fetch("/api/logs", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Log request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const nextLogs = Array.isArray(data.logs) ? data.logs : [];
+
+        if (healthWarningActive) {
+          healthWarningActive = false;
+        }
+
+        nextLogs.forEach((entry) => {
+          if (!knownServerLogIds.has(entry.id)) {
+            knownServerLogIds.add(entry.id);
+          }
+        });
+
+        serverLogs = nextLogs;
+        renderLogs();
+      } catch (error) {
+        if (!healthWarningActive) {
+          healthWarningActive = true;
+          addClientLog("error", "Server is down or unreachable");
+        }
+      }
+    }
 
     async function trigger(account) {
-      buttons.forEach((button) => {
-        button.disabled = true;
-      });
+      const activeButton = buttons.find((button) => button.dataset.account === account);
+      if (!activeButton) return;
+
+      startButtonCooldown(activeButton);
       statusEl.textContent = `Triggering: ${account}...`;
 
       try {
@@ -59,16 +413,31 @@
         statusEl.textContent = `Triggered: ${account}. Check Slack for processing updates.`;
       } catch (error) {
         statusEl.textContent = `Failed to trigger ${account}: ${error.message}`;
-      } finally {
-        buttons.forEach((button) => {
-          button.disabled = false;
-        });
+        const isNetworkError =
+          error instanceof TypeError ||
+          /Failed to fetch|NetworkError|Load failed/i.test(String(error.message || ""));
+
+        addClientLog(
+          "error",
+          isNetworkError
+            ? "Server is down or unreachable"
+            : `Error processing ${account}: ${error.message}`
+        );
       }
     }
 
     buttons.forEach((button) => {
       button.addEventListener("click", () => trigger(button.dataset.account));
     });
+
+    toggleLogButton.addEventListener("click", () => {
+      const collapsed = logPanel.classList.toggle("collapsed");
+      toggleLogButton.textContent = collapsed ? "Show Log" : "Hide Log";
+    });
+
+    renderLogs();
+    refreshServerLogs();
+    setInterval(refreshServerLogs, 5000);
   </script>
 </body>
 </html>

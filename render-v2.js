@@ -40,6 +40,7 @@ const crypto = require("crypto");
 
 const { buildDrawtext } = require("./render-v2/text-engine");
 const { buildTemplateByMode } = require("./templates_v2");
+const { addRenderLog } = require("./log-store");
 
 const app = express();
 
@@ -311,6 +312,9 @@ app.post("/render2", cpUpload, async (req, res) => {
   let tripleOverlayPath = null;
   let tripleOverlayIsTemp = false;
   let outputPath = null;
+  let outputName = "";
+  let displayName = "";
+  let mode = null;
 
   // text temp file(s) created by text-engine
   const textfilePaths = [];
@@ -325,6 +329,7 @@ app.post("/render2", cpUpload, async (req, res) => {
     }
 
     basePath = videoFile.path;
+    displayName = String(videoFile.originalname || "").trim();
     facePath = faceFile ? faceFile.path : null;
     tripleOverlayPath = tripleOverlayFile ? tripleOverlayFile.path : null;
     tripleOverlayIsTemp = !!tripleOverlayFile;
@@ -343,8 +348,8 @@ app.post("/render2", cpUpload, async (req, res) => {
     const face_start = safeNumber(req.body.face_start, 0);
     const face_duration = safeNumber(req.body.face_duration, 0); // 0 means "full remainder"
 
-    const outputName = sanitizeOutputName(req.body.output_name);
-    const mode = parseMode(req.body.mode);
+    outputName = sanitizeOutputName(req.body.output_name);
+    mode = parseMode(req.body.mode);
     const tripleOverlayEnabled = parseBool(req.body.triple_overlay_enabled);
     if (mode === "triple" && tripleOverlayEnabled) {
       if (!tripleOverlayPath && fs.existsSync(TRIPLE_OVERLAY_DEFAULT_PATH)) {
@@ -616,6 +621,14 @@ app.post("/render2", cpUpload, async (req, res) => {
 
     await runFfmpeg(args);
 
+    addRenderLog({
+      status: "success",
+      fileName: displayName || outputName,
+      mode: mode || "standard",
+      message: "Render completed successfully",
+      source: "render2",
+    });
+
     // Return MP4 file
     res.setHeader("Content-Type", "video/mp4");
     res.setHeader("Content-Disposition", `attachment; filename="${outputName}"`);
@@ -636,6 +649,13 @@ app.post("/render2", cpUpload, async (req, res) => {
     });
   } catch (e) {
     console.error("render2 failed:", e?.message || e);
+    addRenderLog({
+      status: "error",
+      fileName: displayName || outputName || path.basename(outputPath || ""),
+      mode: mode || parseMode(req.body?.mode) || "standard",
+      message: e?.message || "Server error",
+      source: "render2",
+    });
 
     // Cleanup temp files on error
     safeUnlink(basePath);

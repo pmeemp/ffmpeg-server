@@ -3,6 +3,7 @@ const multer = require("multer");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { addRenderLog, readLogs } = require("./log-store");
 
 const { execSync } = require("child_process");
 
@@ -66,6 +67,41 @@ app.get("/", (req, res) => {
 });
 
 app.use(express.static(publicDir));
+
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, service: "ffmpeg-server", time: new Date().toISOString() });
+});
+
+app.get("/api/logs", (req, res) => {
+  res.json({ ok: true, logs: readLogs() });
+});
+
+app.post("/api/render-log", (req, res) => {
+  const providedKey =
+    req.header("x-render-log-key") ||
+    req.body?.key ||
+    req.query?.key ||
+    "";
+
+  if (!makeKey || providedKey !== makeKey) {
+    return res.status(403).json({ error: "Invalid log key" });
+  }
+
+  const status = String(req.body?.status || "").trim().toLowerCase();
+  if (!["success", "error", "info"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  const entry = addRenderLog({
+    status,
+    fileName: req.body?.file_name || req.body?.fileName || req.body?.output_name,
+    mode: req.body?.mode || req.body?.account,
+    message: req.body?.message || "",
+    source: "callback",
+  });
+
+  return res.json({ ok: true, entry });
+});
 
 app.post("/api/trigger", async (req, res) => {
   try {
@@ -259,6 +295,12 @@ const drawtext = [
       if (code !== 0) {
         console.error("FFmpeg failed. code=", code);
         console.error("STDERR:", stderr);
+        addRenderLog({
+          status: "error",
+          fileName: path.basename(outputPath || ""),
+          mode: templateId,
+          message: stderr || "FFmpeg processing failed",
+        });
 
         // Cleanup
         safeUnlink(inputPath);
@@ -271,6 +313,12 @@ const drawtext = [
       // Send MP4 back
       res.setHeader("Content-Type", "video/mp4");
       res.setHeader("Content-Disposition", `attachment; filename="${path.basename(outputPath)}"`);
+      addRenderLog({
+        status: "success",
+        fileName: path.basename(outputPath || ""),
+        mode: templateId,
+        message: "Render completed successfully",
+      });
 
       res.sendFile(outputPath, (sendErr) => {
         // Cleanup regardless
@@ -283,6 +331,12 @@ const drawtext = [
     });
   } catch (e) {
     console.error("Server error:", e);
+    addRenderLog({
+      status: "error",
+      fileName: path.basename(outputPath || ""),
+      mode: req.body?.template_id || "",
+      message: e.message || "Server error",
+    });
 
     // Cleanup on crash
     safeUnlink(inputPath);
