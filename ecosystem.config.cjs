@@ -14,7 +14,11 @@ module.exports = {
       max_restarts: 5,
       kill_timeout: 10000,
       max_memory_restart: '700M',
-      env: { NODE_ENV: 'production' }
+      env: {
+        NODE_ENV: 'production',
+        MAKE_WEBHOOK_URL: process.env.MAKE_WEBHOOK_URL,
+        MAKE_WEBHOOK_KEY: process.env.MAKE_WEBHOOK_KEY
+      }
     },
     {
       name: 'stitch-server',

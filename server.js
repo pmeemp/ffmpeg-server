@@ -32,6 +32,7 @@ function probeVideo(filePath) {
 const getTemplate = require("./templates");
 
 const app = express();
+app.use(express.json());
 //const upload = multer({ dest: "uploads/" });
 
 const upload = multer({
@@ -51,12 +52,49 @@ const upload = multer({
 
 
 const FONT = "/root/ffmpeg-server/fonts/TikTokSans_28pt-Medium.ttf";
+const publicDir = path.join(__dirname, "public");
+const makeWebhook =
+  process.env.MAKE_WEBHOOK_URL || "https://hook.us2.make.com/wgk97ivvoadhtvpr3mfs23971x6xy9hx";
+const makeKey = process.env.MAKE_WEBHOOK_KEY || "ourSecret098";
+const allowedAccounts = new Set(["datsfetch", "tophealth", "triple"]);
 
 // Accept ANY fields so Make.com can't trigger MulterError: Unexpected field
 const uploadAny = upload.any();
 
 app.get("/", (req, res) => {
-  res.status(200).send("OK");
+  res.sendFile(path.join(publicDir, "index.html"));
+});
+
+app.use(express.static(publicDir));
+
+app.post("/api/trigger", async (req, res) => {
+  try {
+    const account = String(req.body?.account || "").trim().toLowerCase();
+
+    if (!allowedAccounts.has(account)) {
+      return res.status(400).json({ error: "Invalid account" });
+    }
+
+    if (!makeWebhook || !makeKey) {
+      return res.status(500).json({ error: "Trigger is not configured on the server" });
+    }
+
+    const url = new URL(makeWebhook);
+    url.searchParams.set("account", account);
+    url.searchParams.set("key", makeKey);
+    url.searchParams.set("t", String(Date.now()));
+
+    const response = await fetch(url, { method: "GET" });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: `Webhook failed with status ${response.status}` });
+    }
+
+    return res.json({ ok: true, account });
+  } catch (error) {
+    console.error("Trigger error:", error);
+    return res.status(500).json({ error: "Failed to trigger webhook" });
+  }
 });
 
 function safeUnlink(p) {

@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Render Control</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { margin: 0 0 16px; color: #374151; }
+    .btn { display: block; width: 100%; padding: 16px; margin: 12px 0; font-size: 18px; border-radius: 14px; border: 0; cursor: pointer; }
+    .btn-primary { background: #111827; color: white; }
+    .btn-secondary { background: #2563eb; color: white; }
+    .btn-danger { background: #dc2626; color: white; }
+    .separator { border-top: 1px solid #e5e7eb; margin: 20px 0; }
+    .small { font-size: 13px; color: #6b7280; margin-top: 10px; }
+    .status { margin-top: 14px; font-size: 14px; color: #111827; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Render Control</h1>
+    <p>Click a button to start edits. Status will appear in Slack.</p>
+
+    <button class="btn btn-primary" data-account="datsfetch">Run Datsfetch</button>
+    <button class="btn btn-secondary" data-account="tophealth">Run Tophealth</button>
+
+    <div class="separator"></div>
+
+    <button class="btn btn-danger" data-account="triple">RUN TRIPLE DISCOUNT</button>
+
+    <div class="status" id="status"></div>
+    <div class="small">If nothing happens in Slack within 10 minutes, notify me.</div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const buttons = Array.from(document.querySelectorAll("[data-account]"));
+
+    async function trigger(account) {
+      buttons.forEach((button) => {
+        button.disabled = true;
+      });
+      statusEl.textContent = `Triggering: ${account}...`;
+
+      try {
+        const response = await fetch("/api/trigger", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ account }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || `Request failed: ${response.status}`);
+        }
+
+        statusEl.textContent = `Triggered: ${account}. Check Slack for processing updates.`;
+      } catch (error) {
+        statusEl.textContent = `Failed to trigger ${account}: ${error.message}`;
+      } finally {
+        buttons.forEach((button) => {
+          button.disabled = false;
+        });
+      }
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => trigger(button.dataset.account));
+    });
+  </script>
+</body>
+</html>
